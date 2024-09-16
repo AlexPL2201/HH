@@ -16,9 +16,11 @@ from questions.models import Question, Answer
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from variables import *
+from django.contrib.auth.decorators import login_required
 
 
 # view страницы игрового лобби и очереди и создания игрового лобби
+@login_required
 def create_lobby(request):
 
     # создание лобби и добавление его в объект пользователя в качестве current_lobby
@@ -33,13 +35,16 @@ def create_lobby(request):
         'user': current_user,
         'modes': Game.types,
         'max_players': GAME_MAX_PLAYERS,
-        'users': '',
-        'friends': AuthUser.objects.filter(pk__in=current_user.friends.values_list('pk'))
+        'users_left': [],
+        'users_right': [],
+        'blanks_left': range(math.floor((GAME_MAX_PLAYERS - 1) / 2)),
+        'blanks_right': range(math.ceil((GAME_MAX_PLAYERS - 1) / 2)),
     }
+
     return render(request, 'games/lobby.html', context=context)
 
 
-def join_lobby(request):
+def join_lobby_ajax(request):
 
     sender = AuthUser.objects.get(pk=int(request.GET.get('sender_id')))
     lobby = Lobby.objects.get(pk=sender.current_lobby.pk)
@@ -49,7 +54,7 @@ def join_lobby(request):
         current_user.current_lobby = lobby
         current_user.is_lobby_leader = False
         current_user.save()
-        friends = [x[0] for x in current_user.friends.values_list('pk') if x not in [player.pk for player in lobby.players.all()]]
+        # friends = [x[0] for x in current_user.friends.values_list('pk') if x not in [player.pk for player in lobby.players.all()]]
 
         last_place = True if current_user.current_lobby.players_count == GAME_MAX_PLAYERS else False
         data = {'action': 'player_join', 'joiner_pk': current_user.pk, 'joiner_nickname': current_user.nickname,
@@ -58,22 +63,36 @@ def join_lobby(request):
         for user in AuthUser.objects.filter(current_lobby=current_user.current_lobby).exclude(pk=current_user.pk):
             async_to_sync(layer.group_send)(f'user_{user.pk}', {'type': 'send_message', 'message': data})
 
-        theme = True if eval(lobby.type)[0] == 'theme' else False
-
-        context = {
-            'title': 'Игровое лобби',
-            'user': current_user,
-            'modes': Game.types,
-            'max_players': GAME_MAX_PLAYERS,
-            'users': AuthUser.objects.filter(current_lobby=lobby).exclude(pk=current_user.pk),
-            'friends': friends,
-            'theme': theme,
-            'themes': Category.objects.all().values_list('name')
-        }
-
-        return HttpResponse(render_to_string('games/lobby.html', context=context))
+        return JsonResponse({'status': 'ok', 'url': 'http://' + request.META['HTTP_HOST'] + '/games/join_lobby/'})
     else:
-        return HttpResponse('full')
+        return JsonResponse({'status': 'full'})
+    
+
+@login_required
+def join_lobby(request):
+
+    current_user = request.user
+    current_lobby = current_user.current_lobby
+
+    theme = True if eval(current_lobby.type)[0] == 'theme' else False
+
+    users_left = [j for i, j in enumerate(AuthUser.objects.filter(current_lobby=current_lobby).exclude(pk=current_user.pk)) if (i + 1) % 2 == 0]
+    users_right = [j for i, j in enumerate(AuthUser.objects.filter(current_lobby=current_lobby).exclude(pk=current_user.pk)) if (i + 1) % 2 == 1]
+
+    context = {
+        'title': 'Игровое лобби',
+        'user': current_user,
+        'modes': Game.types,
+        'max_players': GAME_MAX_PLAYERS,
+        'users_left': users_left,
+        'users_right': users_right,
+        'blanks_left': range(math.floor((GAME_MAX_PLAYERS - 1) / 2) - len(users_left)),
+        'blanks_right': range(math.ceil((GAME_MAX_PLAYERS - 1) / 2) - len(users_right)),
+        'theme': theme,
+        'themes': Category.objects.all().values_list('name')
+    }
+
+    return render(request, 'games/lobby.html', context=context)
 
 
 def change_game_mode(request):
@@ -175,7 +194,7 @@ def quit_lobby(request):
     current_user = request.user
 
     # если пользователь в лобби один, лобби удаляется, если нет - лобби убирается из current_lobby объекта пользователя
-    if current_user.current_lobby and current_user.current_lobby.players_count == 1:
+    if current_user.current_lobby is not None and current_user.current_lobby.players_count == 1:
         current_user.current_lobby.delete()
     elif current_user.current_lobby is not None:
         data = {'action': 'player_quit', 'quitter_pk': current_user.pk, 'quitter_nickname': current_user.nickname,
@@ -219,6 +238,7 @@ def cancel_queue(request):
 
 
 # view страницы игры
+@login_required
 def game(request):
 
     context = {
@@ -247,7 +267,7 @@ def start_game(request):
         for _ in range(questions_count):
 
             # получение случайного вопроса, которого не было в игре, и добавление его в объект игры в current_question
-            questions = Question.objects.exclude(pk__in=current_game.asked_questions.values_list('pk'))
+            questions = Question.objects.exclude(pk__in=current_game.asked_questions.values_list('pk')).filter(is_validated=True)
             current_game = Game.objects.get(pk=request.user.current_game.pk)
             if eval(current_game.type)[0] in ['theme', 'friend']:
                 questions = questions.filter(category__pk__in=current_game.categories.values_list('pk'))
@@ -260,7 +280,7 @@ def start_game(request):
 
             # попытка получить нужное количество неправильных ответов того же подтипа, что и верный
             first_answers = Answer.objects.filter(
-                Q(subtype=question.answer.subtype) & ~Q(pk=question.answer.pk)
+                Q(subtype=question.answer.subtype) & ~Q(pk=question.answer.pk) & Q(is_validated=True)
             ).order_by('?')[:GAME_SUBTYPE_ANSWERS_COUNT]
 
             # компенсация возможного недостатка неправильных ответов того же подтипа неправильными ответами того же типа
@@ -268,10 +288,10 @@ def start_game(request):
                 type_answers_count += GAME_SUBTYPE_ANSWERS_COUNT - len(first_answers)
 
             # получение необходимого количества неправильных ответов того же типа
-            type_answers = Answer.objects.exclude(subtype=question.answer.subtype).order_by('?')[:type_answers_count]
+            type_answers = Answer.objects.filter(is_validated=True).exclude(subtype=question.answer.subtype).order_by('?')[:type_answers_count]
 
             # преобразование всех нужных ответов в список словарей и перемешивание их
-            answers = first_answers | Answer.objects.filter(pk=question.answer.pk) | type_answers
+            answers = first_answers | Answer.objects.filter(pk=question.answer.pk, is_validated=True) | type_answers
             answers = list(answers.values())
             random.shuffle(answers)
 
@@ -399,6 +419,7 @@ def check_answer(request):
 
 
 # view страницы результатов игры
+@login_required
 def results(request, game_id):
 
     # получение объекта нужной игры и всех её игроков

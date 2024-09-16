@@ -3,9 +3,7 @@ from questions.models import Question, Category
 
 TYPES = (
         ('normal', 'Обычная'),
-        ('ranked', 'Ранговая'),
-        ('theme', 'Тематическая'),
-        ('friend', 'Дружеская')
+        ('theme', 'Тематическая')
     )
 
 
@@ -76,3 +74,12 @@ class Game(models.Model):
     @property
     def players(self):
         return list(self.results.keys())
+
+    @property
+    def display_type(self):
+        return eval(self.type)[1]
+
+    @property
+    def get_time(self):
+        return self.started.strftime("%Y-%m-%d/%H:%M")
+

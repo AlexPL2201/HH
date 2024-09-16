@@ -8,7 +8,7 @@ class Category(models.Model):
         ordering = ('name',)
 
     def __str__(self):
-        return f'#{self.name}'
+        return f'{self.name}'
 
 
 class Type(models.Model):
@@ -16,8 +16,9 @@ class Type(models.Model):
 
     class Meta:
         ordering = ('name',)
+
     def __str__(self):
-        return f'#{self.name}'
+        return f'{self.name}'
 
 
 class SubType(models.Model):
@@ -28,15 +29,16 @@ class SubType(models.Model):
         ordering = ('name',)
 
     def __str__(self):
-        return f'#{self.name}'
+        return f'{self.name}'
 
 
 class Answer(models.Model):
     answer = models.CharField(max_length=64, verbose_name='Ответ')
     subtype = models.ForeignKey(SubType, on_delete=models.CASCADE, verbose_name='Подтип')
+    is_validated = models.BooleanField(default=False)
 
     def __str__(self):
-        return f'#{self.answer}'
+        return f'{self.answer}'
 
 
 class Question(models.Model):
@@ -51,7 +53,7 @@ class Question(models.Model):
         ordering = ('-created_at',)
 
     def __str__(self):
-        return f'#{self.question}'
+        return f'{self.question}'
 
 
 class QuestionComplaint(models.Model):
@@ -59,4 +61,4 @@ class QuestionComplaint(models.Model):
     text = models.CharField(max_length=128, verbose_name='Жалоба')
 
     def __str__(self):
-        return f'#{self.text}'
+        return f'{self.text}'

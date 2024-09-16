@@ -14,8 +14,8 @@ window.addEventListener('load', () => {
         });
     });
 
-    $(document).on('click', '.lobby_invite_friend', (event) => {
-        let friend_id = event.target.id.replace('friend_', '');
+    $(document).on('click', '.header_friend_invite', (event) => {
+        let friend_id = event.target.id.replace('invite_friend_', '');
         let friend_name = event.target.innerHTML;
 
         // запуск сокета
@@ -28,7 +28,7 @@ window.addEventListener('load', () => {
             console.log('open')
             console.log(e)
             friendSocket.send(
-                JSON.stringify({'message': {'action': 'invitation', 'sender': {'pk': user_id, 'nickname': $('.lobby_users>p:first-child').html()}}})
+                JSON.stringify({'message': {'action': 'invitation', 'sender': {'pk': user_id, 'nickname': $('.lobby_the_player>span:first-child').html()}}})
             )
         }
 
@@ -59,42 +59,6 @@ window.addEventListener('load', () => {
             console.log('error')
             console.log(e)
         }
-    });
-
-    $(document).on('click', '.lobby_invitation_accept', () => {
-        $.ajax({
-            method: "get",
-            url: "/games/join_lobby/",
-            data: {sender_id: sender['pk']},
-            success: (data) => {
-                if(data != 'full') {
-                    let head = data.slice(data.match(/<head/m).index + 6, data.match(/<\/head>/m).index)
-                    let body = data.slice(data.match(/<body/m).index + 6, data.match(/<\/body>/m).index)
-                    $('head').html(head);
-                    $('body').html(body);
-                } else {
-                    sender = undefined;
-                    $('.lobby_invitation_nickname').html('');
-                    $('.lobby_invitation_accept').css('display', 'none');
-                    $('.lobby_invitation_reject').css('display', 'none');
-                };
-                userSocket.send(
-                    JSON.stringify({'message': {'action': 'accept'}})
-                );
-            },
-            error: (data) => {
-            }
-        });
-    });
-
-    $(document).on('click', '.lobby_invitation_reject', () => {
-        sender = undefined;
-        $('.lobby_invitation_nickname').html('');
-        $('.lobby_invitation_accept').css('display', 'none');
-        $('.lobby_invitation_reject').css('display', 'none');
-        userSocket.send(
-            JSON.stringify({'message': {'action': 'reject'}})
-        );
     });
 
     // обработчик события нажатия на кнопку поиска игры
@@ -152,5 +116,64 @@ window.addEventListener('load', () => {
     window.addEventListener('beforeunload', () => {
         quit_lobby();
     });
+
+    $('.lobby_chat_close').on('click', () => {
+        $('.lobby_chat_block').css('display', '');
+    });
+
+    $('.lobby_chat_open').on('click', () => {
+        $('.lobby_chat_block').css('display', 'flex');
+        $.ajax({
+            method: "get",
+            url: "/chat/load_messages/",
+            data: {type: 'lobby'},
+            success: (data) => {
+                let messages = data['messages'];
+                if (messages.length > 0) {
+                    let date = messages[0].created_at.slice(0, 10);
+                    let html_string = '';
+                    for (let message of messages) {
+                        let message_date = message.created_at.slice(0, 10);
+                        if(date != message_date) {
+                            html_string += `<span class='chat_date'>${date}</span>`;
+                            date = message_date;
+                        }
+                        let time = message.created_at.slice(11, 16);
+                        let message_sender = data['players'][message.sender_id];
+                        if (message.sender_id == parseInt(user_id)) {
+                            html_string += `<div class='chat_sent'><span class='chat_message_sender'>${message_sender}</span>
+                            <span class='chat_message_text'>${message.text}<span class='chat_message_time'>${time}</span></span></div>`;
+                        }else{
+                            html_string += `<div class='chat_received'><span class='chat_message_sender'>${message_sender}</span>
+                            <span class='chat_message_text'>${message.text}<span class='chat_message_time'>${time}</span></span></div>`;
+                        }
+                    };
+                    html_string += `<span class='chat_date'>${date}</span>`;
+                    $('.lobby_chat_messages').html(html_string);
+                };
+            },
+            error: (data) => {
+            }
+        })
+    });
+
+    $('.lobby_chat_textarea').on('keydown', (event) => {
+
+        if (event.keyCode == 13) {
+            event.preventDefault();
+            let chat_message = event.target.value;
+            event.target.value = '';
+            $.ajax({
+                method: "get",
+                url: "/chat/create_messages/",
+                data: {message: chat_message, type: 'lobby'},
+                success: (data) => {
+
+                },
+                error: (data) => {
+                }
+            })
+        }
+    })
 
 });
